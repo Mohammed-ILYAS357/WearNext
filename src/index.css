@@ -1,0 +1,71 @@
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,500&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-display: 'Fraunces', ui-serif, Georgia, serif;
+  --font-body: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+
+  --color-canvas: #FBFCFE;
+  --color-mist: #E8F2FB;
+  --color-mist-2: #D7EAFA;
+  --color-ink: #0B2545;
+  --color-ink-soft: #3A5477;
+  --color-sky: #6FB7E8;
+  --color-blue: #1D5FA8;
+  --color-blue-deep: #123E73;
+  --color-water: #4FA8D8;
+  --color-water-light: #A8D8F0;
+}
+
+:root { color-scheme: light; }
+* { -webkit-tap-highlight-color: transparent; }
+html, body, #root { height: 100%; }
+
+body {
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-body);
+  overscroll-behavior-y: none;
+}
+
+::selection { background: var(--color-sky); color: var(--color-ink); }
+
+:focus-visible {
+  outline: 2px solid var(--color-blue);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ---- Signature: the wardrobe glass water fill ---- */
+@keyframes waterBob {
+  0%, 100% { transform: translateY(0) scaleY(1); }
+  50% { transform: translateY(-2.5px) scaleY(1.015); }
+}
+.water-wave { animation: waterBob 4.5s ease-in-out infinite; transform-origin: bottom center; }
+.water-wave-slow { animation: waterBob 6s ease-in-out infinite; animation-delay: -1.5s; transform-origin: bottom center; }
+
+@keyframes gentlePulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.72; }
+}
+.gentle-pulse { animation: gentlePulse 2.6s ease-in-out infinite; }
+
+@keyframes floatUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-rise { animation: floatUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) both; }
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: var(--color-mist-2); border-radius: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
