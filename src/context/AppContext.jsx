@@ -22,7 +22,6 @@ export function AppProvider({ children }) {
   const [meta, setMetaState] = useState(null)
   const [loading, setLoading] = useState(true)
   const [reminder, setReminder] = useState(null) // { type, message }
-  const notifTimerRef = useRef(null)
 
   const refreshOutfits = useCallback(async () => {
     const all = await getAllOutfits()
@@ -90,6 +89,21 @@ export function AppProvider({ children }) {
     await refreshOutfits()
     await refreshHistory()
     setLoading(false)
+    // Tell the SW to check right now (covers the case where the SW was
+    // just activated and hasn't had a periodic-sync tick yet).
+    if (m.notificationsEnabled) {
+      try {
+        const reg = await navigator.serviceWorker?.ready
+        reg?.active?.postMessage({ type: 'CHECK_NOTIFICATIONS' })
+        // Also (re-)register periodic sync on every boot so it survives SW updates.
+        if (reg && 'periodicSync' in reg) {
+          const perm = await navigator.permissions?.query({ name: 'periodic-background-sync' })
+          if (perm?.state === 'granted') {
+            await reg.periodicSync.register('wearnext-notif-check', { minInterval: 60 * 60 * 1000 })
+          }
+        }
+      } catch { /* best effort */ }
+    }
   }, [rollForward, refreshOutfits, refreshHistory])
 
   useEffect(() => { bootstrap() }, [bootstrap])
@@ -138,43 +152,85 @@ export function AppProvider({ children }) {
     }
   }, [outfits, meta, loading])
 
-  // ---- 7:30 AM "Dress of the Day" notification ----
-  const scheduleNextNotification = useCallback((m) => {
-    if (notifTimerRef.current) clearTimeout(notifTimerRef.current)
+  // ---- Notification system ----
+  // Three-layer approach for maximum reliability on Android:
+  //   1. SW `CHECK_NOTIFICATIONS` message  → fires immediately and on every SW wake
+  //   2. Periodic Background Sync          → wakes the SW hourly when app is closed
+  //   3. In-app setTimeout (both timers)   → runs while the tab is open
+  // All three paths write a per-day dedup key to IDB, so only one
+  // notification fires per day regardless of how many times the check runs.
+
+  const morningTimerRef = useRef(null)
+  const eveningTimerRef = useRef(null)
+
+  // Post a message to the SW so it checks right now — used on boot and
+  // when the user enables notifications, giving immediate feedback.
+  const pingSW = useCallback(async () => {
+    try {
+      const reg = await navigator.serviceWorker?.getRegistration()
+      reg?.active?.postMessage({ type: 'CHECK_NOTIFICATIONS' })
+    } catch { /* best effort */ }
+  }, [])
+
+  // Register Periodic Background Sync so Chrome on Android can wake the SW
+  // roughly once per hour to fire notifications even with the tab closed.
+  const registerPeriodicSync = useCallback(async () => {
+    try {
+      const reg = await navigator.serviceWorker?.ready
+      if (reg && 'periodicSync' in reg) {
+        const perm = await navigator.permissions?.query({ name: 'periodic-background-sync' })
+        if (perm?.state === 'granted') {
+          await reg.periodicSync.register('wearnext-notif-check', {
+            minInterval: 60 * 60 * 1000, // 1 hour
+          })
+        }
+      }
+    } catch { /* Periodic Background Sync not available on this browser */ }
+  }, [])
+
+  // In-app fallback timer for the morning notification (while tab is open).
+  const scheduleMorningTimer = useCallback((m) => {
+    if (morningTimerRef.current) clearTimeout(morningTimerRef.current)
     if (!m?.notificationsEnabled) return
     if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return
-
     const [hh, mm] = (m.notificationTime || '07:30').split(':').map(Number)
     const now = new Date()
     const target = new Date()
     target.setHours(hh, mm, 0, 0)
     if (target <= now) target.setTime(target.getTime() + DAY_MS)
-    const delay = target.getTime() - now.getTime()
-
-    notifTimerRef.current = setTimeout(async () => {
-      try {
-        const reg = await navigator.serviceWorker?.getRegistration()
-        const body = "Today's outfit is ready. Open WearNext to see it."
-        if (reg) {
-          reg.showNotification('WearNext — Dress of the Day', {
-            body,
-            icon: '/icons/icon-192.png',
-            badge: '/icons/icon-192.png',
-            tag: 'dress-of-the-day',
-          })
-        } else {
-          new Notification('WearNext — Dress of the Day', { body, icon: '/icons/icon-192.png' })
-        }
-      } catch (e) { /* notification best-effort */ }
+    morningTimerRef.current = setTimeout(async () => {
+      pingSW()  // let the SW fire the actual notification (dedup-safe)
       const latest = await getMeta()
-      scheduleNextNotification(latest)
-    }, delay)
-  }, [])
+      scheduleMorningTimer(latest)
+    }, target.getTime() - now.getTime())
+  }, [pingSW])
+
+  // In-app fallback timer for the 10 PM laundry reminder (while tab is open).
+  const scheduleEveningTimer = useCallback((m) => {
+    if (eveningTimerRef.current) clearTimeout(eveningTimerRef.current)
+    if (!m?.notificationsEnabled) return
+    if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return
+    const now = new Date()
+    const target = new Date()
+    target.setHours(22, 0, 0, 0)
+    if (target <= now) target.setTime(target.getTime() + DAY_MS)
+    eveningTimerRef.current = setTimeout(async () => {
+      pingSW()  // SW handles the actual notification with dedup
+      const latest = await getMeta()
+      scheduleEveningTimer(latest)
+    }, target.getTime() - now.getTime())
+  }, [pingSW])
 
   useEffect(() => {
-    if (meta) scheduleNextNotification(meta)
-    return () => { if (notifTimerRef.current) clearTimeout(notifTimerRef.current) }
-  }, [meta?.notificationsEnabled, meta?.notificationTime, scheduleNextNotification])
+    if (meta) {
+      scheduleMorningTimer(meta)
+      scheduleEveningTimer(meta)
+    }
+    return () => {
+      if (morningTimerRef.current) clearTimeout(morningTimerRef.current)
+      if (eveningTimerRef.current) clearTimeout(eveningTimerRef.current)
+    }
+  }, [meta?.notificationsEnabled, meta?.notificationTime, scheduleMorningTimer, scheduleEveningTimer])
 
   const enableNotifications = useCallback(async () => {
     if (typeof Notification === 'undefined') return false
@@ -183,8 +239,12 @@ export function AppProvider({ children }) {
     const updated = { ...m, notificationsEnabled: perm === 'granted' }
     await setMeta(updated)
     setMetaState(updated)
+    if (perm === 'granted') {
+      await registerPeriodicSync()
+      await pingSW()
+    }
     return perm === 'granted'
-  }, [])
+  }, [registerPeriodicSync, pingSW])
 
   const disableNotifications = useCallback(async () => {
     const m = await getMeta()
@@ -200,7 +260,6 @@ export function AppProvider({ children }) {
     setMetaState(updated)
   }, [])
 
-  // ---- Mutations exposed to pages ----
 
   const createOutfit = useCallback(async (data) => {
     const preExistingAvailable = outfits.some((o) => o.status === 'queue')
