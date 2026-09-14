@@ -8,6 +8,12 @@ export default defineConfig({
     react(),
     tailwindcss(),
     VitePWA({
+      // injectManifest lets us write a real custom SW (src/sw.js) so the SW
+      // can run notification checks even when the app tab is closed/backgrounded,
+      // instead of relying on setTimeout in the React tree (which dies with the tab).
+      strategies: 'injectManifest',
+      srcDir: 'src',
+      filename: 'sw.js',
       registerType: 'autoUpdate',
       includeAssets: ['icons/favicon.svg', 'icons/apple-touch-icon.png'],
       manifest: {
@@ -26,12 +32,12 @@ export default defineConfig({
           { src: 'icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
         ],
       },
-      workbox: {
+      injectManifest: {
         globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2}'],
-        runtimeCaching: [],
       },
       devOptions: {
         enabled: true,
+        type: 'module',
       },
     }),
   ],
