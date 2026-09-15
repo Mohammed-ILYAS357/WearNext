@@ -7,6 +7,7 @@ import { readableTextOn } from '../utils/color'
 import LaundryDropZone from '../components/LaundryDropZone'
 import ReminderBanner from '../components/ReminderBanner'
 import WardrobeSummary from '../components/WardrobeSummary'
+import AboutSection from '../components/AboutSection'
 
 function DraggableHero({ outfit, textColor }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
@@ -134,6 +135,7 @@ export default function Home() {
           )}
         </div>
         <WardrobeSummary />
+        <AboutSection />
       </div>
     )
   }
@@ -181,6 +183,7 @@ export default function Home() {
 
         <div className="mt-4">
           <WardrobeSummary />
+          <AboutSection />
         </div>
       </div>
     </DndContext>
