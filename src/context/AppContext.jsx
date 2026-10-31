@@ -232,6 +232,34 @@ export function AppProvider({ children }) {
     }
   }, [meta?.notificationsEnabled, meta?.notificationTime, scheduleMorningTimer, scheduleEveningTimer])
 
+  // Register Web Push subscription so Vercel cron jobs can push notifications
+  // even when the browser/app is fully closed (as long as internet is on).
+  const registerWebPush = useCallback(async () => {
+    try {
+      const reg = await navigator.serviceWorker?.ready
+      if (!reg || !('pushManager' in reg)) return
+      const VAPID_PUBLIC = import.meta.env.VITE_VAPID_PUBLIC_KEY
+      if (!VAPID_PUBLIC) return
+      // Convert base64url VAPID key to Uint8Array for the browser API
+      const urlBase64ToUint8 = (base64String) => {
+        const padding = '='.repeat((4 - (base64String.length % 4)) % 4)
+        const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/')
+        const raw = window.atob(base64)
+        return Uint8Array.from([...raw].map(c => c.charCodeAt(0)))
+      }
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8(VAPID_PUBLIC),
+      })
+      // Send subscription to the server so Vercel cron can reach this device.
+      await fetch('/api/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subscription: sub.toJSON() }),
+      })
+    } catch { /* Push not supported or blocked — fall back to SW-only */ }
+  }, [])
+
   const enableNotifications = useCallback(async () => {
     if (typeof Notification === 'undefined') return false
     const perm = await Notification.requestPermission()
@@ -241,10 +269,11 @@ export function AppProvider({ children }) {
     setMetaState(updated)
     if (perm === 'granted') {
       await registerPeriodicSync()
+      await registerWebPush()   // also register server-push for closed-app delivery
       await pingSW()
     }
     return perm === 'granted'
-  }, [registerPeriodicSync, pingSW])
+  }, [registerPeriodicSync, registerWebPush, pingSW])
 
   const disableNotifications = useCallback(async () => {
     const m = await getMeta()
