@@ -123,6 +123,67 @@ async function checkAndFireNotifications() {
   }
 }
 
+// ─── Web Push event ───────────────────────────────────────────────────────────
+// Fires when the Vercel cron job sends a push. The payload tells us whether
+// it's a morning or evening push; we then read IDB to personalise the text.
+self.addEventListener('push', (event) => {
+  let data = {}
+  try { data = event.data?.json() ?? {} } catch { /* no payload */ }
+
+  event.waitUntil(
+    (async () => {
+      let db
+      try { db = await openDB() } catch { db = null }
+
+      if (data.type === 'morning') {
+        let outfitName = null
+        if (db) {
+          const meta = await dbGet(db, 'meta', 'app')
+          if (meta?.todayOutfitId) {
+            const outfit = await dbGet(db, 'outfits', meta.todayOutfitId)
+            outfitName = outfit?.name ?? null
+          }
+        }
+        await self.registration.showNotification('WearNext — Good morning! 👗', {
+          body: outfitName
+            ? `Today's pick: "${outfitName}". Tap to see it.`
+            : 'Your Dress of the Day is ready. Tap to see it.',
+          icon: '/icons/icon-192.png',
+          badge: '/icons/icon-192.png',
+          tag: 'dress-of-the-day',
+          renotify: false,
+          data: { url: '/#/' },
+        })
+      } else {
+        // Evening: only remind if today's outfit hasn't been laundered
+        let needsReminder = true
+        let outfitName = null
+        if (db) {
+          const meta = await dbGet(db, 'meta', 'app')
+          if (meta?.todayOutfitId) {
+            const outfit = await dbGet(db, 'outfits', meta.todayOutfitId)
+            needsReminder = outfit && outfit.status !== 'laundry'
+            outfitName = outfit?.name ?? null
+          }
+        }
+        if (needsReminder) {
+          await self.registration.showNotification('WearNext — Laundry time 🌙', {
+            body: outfitName
+              ? `Don't forget to put "${outfitName}" in the laundry before bed.`
+              : "Don't forget to put today's outfit in the laundry.",
+            icon: '/icons/icon-192.png',
+            badge: '/icons/icon-192.png',
+            tag: 'laundry-reminder',
+            renotify: true,
+            actions: [{ action: 'open-laundry', title: 'Open Laundry' }],
+            data: { url: '/#/laundry' },
+          })
+        }
+      }
+    })()
+  )
+})
+
 // ─── SW lifecycle ─────────────────────────────────────────────────────────────
 
 self.addEventListener('activate', (event) => {
