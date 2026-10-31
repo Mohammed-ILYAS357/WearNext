@@ -2,11 +2,20 @@ import { useMemo, useState, useCallback } from 'react'
 import { ChevronLeft, ChevronRight, X, Droplets, Shirt, Star, ArrowLeftRight } from 'lucide-react'
 import { DndContext, PointerSensor, TouchSensor, useSensor, useSensors, useDraggable, useDroppable } from '@dnd-kit/core'
 import { useApp } from '../context/AppContext'
-import { readableTextOn } from '../utils/color'
+import { readableTextOn, relativeLuminance, hexToRgb } from '../utils/color'
 import LaundryDropZone from '../components/LaundryDropZone'
 import { appDayKey, daysBetweenKeys, todayKey } from '../db/db'
 
 const WEEKDAYS = ['S', 'M', 'T', 'W', 'T', 'F', 'S']
+
+// Returns a subtle border when the outfit color is near-white so the tile
+// doesn't blend into the white canvas background.
+function lightBorder(outfit) {
+  if (!outfit?.color) return 'none'
+  return relativeLuminance(outfit.color) > 0.82
+    ? '1.5px solid rgba(11,37,69,0.13)'
+    : 'none'
+}
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
@@ -76,6 +85,7 @@ function FutureDayCell({ cell, outfit, isSuggested, isSwapPending, onTap }) {
         background: outfit ? outfit.hex : 'var(--color-mist)',
         color: outfit ? readableTextOn(outfit.color) : 'var(--color-ink-soft)',
         boxShadow: ringStyle,
+        border: outfit ? lightBorder(outfit) : 'none',
         opacity: outfit ? 1 : 0.45,
       }}
     >
@@ -342,6 +352,7 @@ export default function Calendar() {
                   background: outfit ? outfit.hex : 'var(--color-mist)',
                   color: outfit ? readableTextOn(outfit.color) : 'var(--color-ink-soft)',
                   boxShadow: isToday ? '0 0 0 2.5px var(--color-blue)' : 'none',
+                  border: outfit && !isToday ? lightBorder(outfit) : 'none',
                   opacity: outfit ? (outfit._inferred ? 0.50 : 1) : 0.38,
                 }}
               >
